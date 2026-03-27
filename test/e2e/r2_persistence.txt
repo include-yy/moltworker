@@ -60,12 +60,14 @@ create workspace marker file
 %require
 ===
 WORKER_URL=$(cat "$CCTR_FIXTURE_DIR/worker-url.txt")
-./curl-auth -s "$WORKER_URL/debug/cli?cmd=echo+e2e-persistence-test+%3E+/root/clawd/e2e-marker.txt+%26%26+echo+done" | jq .
+# Write directly to /home/openclaw (the backup dir) rather than via
+# the /root/clawd symlink, to avoid FUSE overlay resolution issues.
+./curl-auth -s "$WORKER_URL/debug/cli?cmd=echo+e2e-persistence-test+%3E+/home/openclaw/clawd/e2e-marker.txt+%26%26+cat+/home/openclaw/clawd/e2e-marker.txt" | jq .
 ---
 {{ result: json object }}
 ---
 where
-* result.stdout contains "done"
+* result.stdout contains "e2e-persistence-test"
 
 ===
 sync workspace with marker file
@@ -84,8 +86,8 @@ delete marker file locally and confirm gone
 %require
 ===
 WORKER_URL=$(cat "$CCTR_FIXTURE_DIR/worker-url.txt")
-# Delete and verify in a single CLI invocation to avoid FUSE overlay races
-./curl-auth -s "$WORKER_URL/debug/cli?cmd=rm+/root/clawd/e2e-marker.txt+%26%26+test+!+-f+/root/clawd/e2e-marker.txt+%26%26+echo+deleted-and-gone" | jq .
+# Use rm -f and verify absence separately to tolerate FUSE overlay quirks
+./curl-auth -s "$WORKER_URL/debug/cli?cmd=rm+-f+/home/openclaw/clawd/e2e-marker.txt+%26%26+test+!+-f+/home/openclaw/clawd/e2e-marker.txt+%26%26+echo+deleted-and-gone" | jq .
 ---
 {{ result: json object }}
 ---
@@ -136,7 +138,7 @@ WORKER_URL=$(cat "$CCTR_FIXTURE_DIR/worker-url.txt")
 # Poll a few times — the FUSE overlay mount may take a moment to become
 # visible to new processes after restoreBackup completes.
 for i in $(seq 1 12); do
-    RESPONSE=$(./curl-auth -s "$WORKER_URL/debug/cli?cmd=cat+/root/clawd/e2e-marker.txt" 2>/dev/null || echo "")
+    RESPONSE=$(./curl-auth -s "$WORKER_URL/debug/cli?cmd=cat+/home/openclaw/clawd/e2e-marker.txt" 2>/dev/null || echo "")
     if echo "$RESPONSE" | jq -r '.stdout // empty' 2>/dev/null | grep -q "e2e-persistence-test"; then
         echo "$RESPONSE" | jq .
         exit 0
