@@ -43,6 +43,16 @@ export async function restoreIfNeeded(sandbox: Sandbox, bucket: R2Bucket): Promi
     return;
   }
 
+  // Unmount any existing FUSE overlay before restoring. If the Worker isolate
+  // recycled, a previous restore's overlay may still be mounted with stale
+  // upper-layer state (e.g. deleted files via whiteout entries). A fresh
+  // mount from the backup gives us a clean lower layer.
+  try {
+    await sandbox.exec(`umount ${BACKUP_DIR} 2>/dev/null; true`);
+  } catch {
+    // May not be mounted
+  }
+
   console.log(`[persistence] Restoring backup ${handle.id}...`);
   const t0 = Date.now();
   try {
