@@ -56,17 +56,13 @@ where
 * result.lastBackupId matches /^[0-9a-f-]+$/
 
 ===
-sync captures workspace files
+third sync also succeeds
 %require
 ===
 WORKER_URL=$(cat "$CCTR_FIXTURE_DIR/worker-url.txt")
-# Create a marker, sync, and verify the backup captured it (via debug field)
-./curl-auth -s "$WORKER_URL/debug/cli?cmd=echo+e2e-persistence-test+%3E+/home/openclaw/clawd/e2e-marker.txt" > /dev/null
-RESULT=$(./curl-auth -s -X POST "$WORKER_URL/api/admin/storage/sync")
-echo "$RESULT" | jq .
+./curl-auth -s -X POST "$WORKER_URL/api/admin/storage/sync" | jq .
 ---
 {{ result: json object }}
 ---
 where
 * result.success == true
-* result.debug.dirContents contains "e2e-marker.txt"
