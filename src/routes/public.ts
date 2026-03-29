@@ -50,23 +50,19 @@ publicRoutes.get('/api/status', async (c) => {
         console.error('[api/status] Restore failed:', restoreError);
       }
 
-      // Start the gateway synchronously with a short timeout. Workers have a
-      // 30s CPU limit — restoreIfNeeded uses ~1-3s, leaving ~25s for the
-      // gateway. If it doesn't start in time, the loading page retries.
-      // We use synchronous start instead of waitUntil because waitUntil is
-      // unreliable in the Durable Object context.
+      // Start the gateway but DON'T wait for it to be ready.
+      // ensureGateway with waitForReady:false just starts the process
+      // (fast RPC, ~2-5s) without blocking on waitForPort (which takes
+      // up to 180s and would exceed the 30s Worker CPU limit).
+      // The loading page polls every 2s — subsequent polls will find
+      // the process and check if the port is up.
       console.log('[api/status] No process found, starting gateway...');
       try {
-        await Promise.race([
-          ensureGateway(sandbox, c.env),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 25_000)),
-        ]);
-        process = await findExistingGatewayProcess(sandbox);
-        if (process) {
-          return c.json({ ok: true, status: 'running', processId: process.id });
-        }
+        await ensureGateway(sandbox, c.env, { waitForReady: false });
       } catch (err) {
-        console.log('[api/status] Gateway start timed out or failed, will retry on next poll');
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[api/status] Gateway start failed:', msg);
+        return c.json({ ok: false, status: 'start_failed', error: msg, restoreError });
       }
       return c.json({ ok: false, status: 'starting', restoreError });
     }

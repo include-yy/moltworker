@@ -107,10 +107,17 @@ export async function findExistingGatewayProcess(sandbox: Sandbox): Promise<Proc
  *
  * @param sandbox - The sandbox instance
  * @param env - Worker environment bindings
+ * @param options.waitForReady - If false, start the process but don't wait for port.
+ *        Used by /api/status to avoid exceeding the Worker CPU limit. Default: true.
  * @returns The running gateway process, or null if the gateway is up but we
  *          don't have a process handle (detected via port probe only)
  */
-export async function ensureGateway(sandbox: Sandbox, env: OpenClawEnv): Promise<Process | null> {
+export async function ensureGateway(
+  sandbox: Sandbox,
+  env: OpenClawEnv,
+  options?: { waitForReady?: boolean },
+): Promise<Process | null> {
+  const waitForReady = options?.waitForReady !== false;
   // Check if gateway is already running or starting
   const existingProcess = await findExistingGatewayProcess(sandbox);
   if (existingProcess) {
@@ -174,28 +181,32 @@ export async function ensureGateway(sandbox: Sandbox, env: OpenClawEnv): Promise
     throw startErr;
   }
 
-  // Wait for the gateway to be ready
-  try {
-    console.log('[Gateway] Waiting for OpenClaw gateway to be ready on port', GATEWAY_PORT);
-    await process.waitForPort(GATEWAY_PORT, { mode: 'tcp', timeout: STARTUP_TIMEOUT_MS });
-    console.log('[Gateway] OpenClaw gateway is ready!');
-
-    const logs = await process.getLogs();
-    if (logs.stdout) console.log('[Gateway] stdout:', logs.stdout);
-    if (logs.stderr) console.log('[Gateway] stderr:', logs.stderr);
-  } catch (e) {
-    console.error('[Gateway] waitForPort failed:', e);
+  if (waitForReady) {
+    // Wait for the gateway to be ready
     try {
+      console.log('[Gateway] Waiting for OpenClaw gateway to be ready on port', GATEWAY_PORT);
+      await process.waitForPort(GATEWAY_PORT, { mode: 'tcp', timeout: STARTUP_TIMEOUT_MS });
+      console.log('[Gateway] OpenClaw gateway is ready!');
+
       const logs = await process.getLogs();
-      console.error('[Gateway] startup failed. Stderr:', logs.stderr);
-      console.error('[Gateway] startup failed. Stdout:', logs.stdout);
-      throw new Error(`OpenClaw gateway failed to start. Stderr: ${logs.stderr || '(empty)'}`, {
-        cause: e,
-      });
-    } catch (logErr) {
-      console.error('[Gateway] Failed to get logs:', logErr);
-      throw e;
+      if (logs.stdout) console.log('[Gateway] stdout:', logs.stdout);
+      if (logs.stderr) console.log('[Gateway] stderr:', logs.stderr);
+    } catch (e) {
+      console.error('[Gateway] waitForPort failed:', e);
+      try {
+        const logs = await process.getLogs();
+        console.error('[Gateway] startup failed. Stderr:', logs.stderr);
+        console.error('[Gateway] startup failed. Stdout:', logs.stdout);
+        throw new Error(`OpenClaw gateway failed to start. Stderr: ${logs.stderr || '(empty)'}`, {
+          cause: e,
+        });
+      } catch (logErr) {
+        console.error('[Gateway] Failed to get logs:', logErr);
+        throw e;
+      }
     }
+  } else {
+    console.log('[Gateway] Process started (not waiting for ready):', process.id);
   }
 
   // Verify gateway is actually responding
